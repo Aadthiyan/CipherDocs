@@ -38,7 +38,7 @@ cyborgdb-lite
 # torch>=2.0.0
 # transformers>=4.21.0
 numpy>=1.24.0
-# huggingface-hub>=0.19.0  # Keep as backup
+huggingface-hub>=0.19.0  # Required for InferenceClient
 
 # HTTP Clients
 httpx>=0.25.0

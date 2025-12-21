@@ -65,8 +65,8 @@ class Settings(BaseSettings):
     
     # Embedding Service
     EMBEDDING_SERVICE_URL: str = Field(default="http://localhost:8001", description="Embedding service URL")
-    EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", description="HuggingFace model name")
-    EMBEDDING_DIMENSION: int = Field(default=384, description="Embedding vector dimension")
+    EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-mpnet-base-v2", description="HuggingFace model name")
+    EMBEDDING_DIMENSION: int = Field(default=768, description="Embedding vector dimension")
     HUGGINGFACE_API_KEY: Optional[str] = Field(default=None, description="HuggingFace API key")
     
     # CORS

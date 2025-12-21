@@ -1,20 +1,11 @@
 """
-Embedding service module for generating vector embeddings using sentence-transformers locally.
+Embedding service module for generating vector embeddings using HuggingFace Inference API.
+Optimized for production deployment with minimal memory footprint.
 """
 
 import logging
 import time
 from typing import List, Optional
-import os
-import numpy as np
-
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    # Fallback to HuggingFace API if sentence-transformers not available
-    from huggingface_hub import InferenceClient
 
 from app.core.config import settings
 
@@ -22,12 +13,10 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
-    Embedding service that uses local sentence-transformers model for fast, reliable embeddings.
-    Falls back to HuggingFace API if local model is not available.
+    Embedding service using HuggingFace Inference API for zero-memory overhead.
+    Perfect for serverless and low-memory deployments.
     """
     _instance = None
-    _model = None
-    _client = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -35,118 +24,78 @@ class EmbeddingService:
         return cls._instance
     
     def __init__(self):
-        # Initialize only if model/client not created
-        if self._model is None and self._client is None:
-            self._initialize_model()
-
-    def _initialize_model(self):
-        """Initialize sentence-transformers model or HuggingFace API client"""
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                logger.info(f"Loading local sentence-transformers model: {settings.EMBEDDING_MODEL_NAME}")
-                self._model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
-                logger.info("Local sentence-transformers model loaded successfully")
-                return
-            except Exception as e:
-                logger.error(f"Failed to load local model: {e}")
-                logger.info("Falling back to HuggingFace API...")
-        
-        # Fallback to HuggingFace API
+        # Initialize HuggingFace InferenceClient
         try:
-            api_key = settings.HUGGINGFACE_API_KEY
-            if not api_key:
-                raise ValueError("HUGGINGFACE_API_KEY environment variable not set")
-            
-            logger.info("Initializing HuggingFace Inference API client")
-            self._client = InferenceClient(api_key=api_key)
-            logger.info("HuggingFace Inference API client initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize HuggingFace client: {e}")
-            raise e
+            from huggingface_hub import InferenceClient
+            self.client = InferenceClient(api_key=settings.HUGGINGFACE_API_KEY)
+        except ImportError:
+            raise ImportError("huggingface_hub is required. Install with: pip install huggingface_hub")
+        
+        self.model_name = settings.EMBEDDING_MODEL_NAME
+        self.api_key = settings.HUGGINGFACE_API_KEY
+        
+        if not self.api_key:
+            logger.warning("HUGGINGFACE_API_KEY not set - embeddings may fail")
+        else:
+            logger.info(f"HuggingFace Inference API configured with model: {self.model_name}")
 
     def generate_embeddings(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
         """
-        Generate embeddings for a list of texts using local model or HuggingFace API.
+        Generate embeddings using HuggingFace Inference API.
         
         Args:
             texts: List of strings to embed
-            batch_size: Batch size for processing
+            batch_size: Batch size for API requests
             
         Returns:
             List of embedding vectors (lists of floats)
         """
         if not texts:
             return []
+        
+        if not self.api_key:
+            raise ValueError("HUGGINGFACE_API_KEY is required for embedding generation")
             
         try:
             start_time = time.time()
             
-            if self._model is not None:
-                # Use local sentence-transformers model
-                logger.info(f"Processing {len(texts)} texts with local model")
-                embeddings = self._model.encode(texts, batch_size=batch_size)
-                
-                # Convert to list of lists
-                if isinstance(embeddings, np.ndarray):
-                    embeddings = embeddings.tolist()
-                
-                duration = time.time() - start_time
-                throughput = len(texts) / duration if duration > 0 else 0
-                
-                logger.info(
-                    f"Generated {len(texts)} embeddings in {duration:.3f}s "
-                    f"(Throughput: {throughput:.1f} texts/s) using local model"
-                )
-                
-                return embeddings
-                
-            elif self._client is not None:
-                # Use HuggingFace API as fallback
-                return self._generate_embeddings_api(texts, batch_size)
+            # Use InferenceClient for feature extraction (embeddings)
+            logger.info(f"Generating embeddings for {len(texts)} texts using HuggingFace API")
+            embeddings = self.client.feature_extraction(
+                texts,
+                model=self.model_name
+            )
             
+            # Convert response to list of lists
+            import numpy as np
+            if isinstance(embeddings, np.ndarray):
+                # numpy array returned, convert to list
+                if len(embeddings.shape) == 1:
+                    # Single embedding, reshape to 2D
+                    embeddings = [embeddings.tolist()]
+                else:
+                    # Multiple embeddings
+                    embeddings = embeddings.tolist()
+            elif isinstance(embeddings, list):
+                if len(embeddings) > 0 and not isinstance(embeddings[0], list):
+                    # Single embedding returned as list, wrap in list
+                    embeddings = [embeddings]
             else:
-                raise RuntimeError("Neither local model nor API client is available")
+                raise ValueError(f"Unexpected API response format: {type(embeddings)}")
+            
+            duration = time.time() - start_time
+            throughput = len(texts) / duration if duration > 0 else 0
+            
+            logger.info(
+                f"Generated {len(embeddings)} embeddings in {duration:.3f}s "
+                f"(Throughput: {throughput:.1f} texts/s) using HuggingFace API"
+            )
+            
+            return embeddings
                 
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             raise e
-
-    def _generate_embeddings_api(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
-        """Generate embeddings using HuggingFace API (fallback method)"""
-        model_name = settings.EMBEDDING_MODEL_NAME
-        
-        # Process in batches to handle API limits
-        embeddings = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            logger.info(f"Processing batch {i//batch_size + 1} with {len(batch)} texts via API")
-            
-            try:
-                # Use feature_extraction for HuggingFace Inference API
-                batch_embeddings = self._client.feature_extraction(
-                    text=batch if len(batch) > 1 else batch[0],
-                    model=model_name
-                )
-                
-                # Handle response: convert numpy arrays to lists
-                if isinstance(batch_embeddings, np.ndarray):
-                    embeddings.append(batch_embeddings.tolist())
-                elif isinstance(batch_embeddings, list):
-                    if batch_embeddings and isinstance(batch_embeddings[0], np.ndarray):
-                        embeddings.extend([emb.tolist() for emb in batch_embeddings])
-                    elif batch_embeddings and isinstance(batch_embeddings[0], (int, float)):
-                        embeddings.append(batch_embeddings)
-                    else:
-                        embeddings.extend(batch_embeddings)
-                else:
-                    raise ValueError(f"Unexpected embedding response type: {type(batch_embeddings)}")
-                    
-            except Exception as e:
-                logger.error(f"Error processing batch via API: {e}")
-                raise e
-        
-        return embeddings
 
     @property
     def vector_dimension(self) -> int:
