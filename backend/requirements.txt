@@ -32,9 +32,11 @@ groq>=0.4.0
 cyborgdb-lite
 
 # Embeddings & ML (Local models)
-sentence-transformers>=2.2.0
-torch>=2.0.0
-transformers>=4.21.0
+# Note: For production, use a separate embedding service
+# These libraries are very large and should not be in the main backend
+# sentence-transformers>=2.2.0
+# torch>=2.0.0
+# transformers>=4.21.0
 numpy>=1.24.0
 # huggingface-hub>=0.19.0  # Keep as backup
 
