@@ -1,18 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional, Union, Any, Dict
 from jose import jwt, JWTError
-
-# Workaround for bcrypt/passlib initialization bug with Python 3.13
-# Initialize bcrypt directly before passlib tries to use it
-import bcrypt
-try:
-    # This prevents passlib from failing during its internal bug detection
-    bcrypt.hashpw(b"init", bcrypt.gensalt())
-except:
-    pass
-
 from passlib.context import CryptContext
 from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Password hashing context using bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -23,7 +16,7 @@ def hash_password(password: str) -> str:
     Hash a password using bcrypt.
     
     Bcrypt has a 72-byte limit, so we truncate to 72 bytes.
-    This is safe because our validation limits passwords to 100 chars anyway.
+    This is safe because our validation limits passwords anyway.
     
     Args:
         password: Plain text password
@@ -31,11 +24,16 @@ def hash_password(password: str) -> str:
     Returns:
         Hashed password string
     """
-    # Truncate to 72 bytes (not characters) to avoid bcrypt's byte limit
+    # Truncate to 72 bytes (bcrypt limit)
     # UTF-8 characters can be multiple bytes, so we must truncate by bytes
     password_bytes = password.encode('utf-8')[:72]
     truncated = password_bytes.decode('utf-8', errors='ignore')
-    return pwd_context.hash(truncated)
+    
+    try:
+        return pwd_context.hash(truncated)
+    except Exception as e:
+        logger.error(f"Password hashing failed: {e}")
+        raise
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
