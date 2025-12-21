@@ -13,7 +13,7 @@ export const API_CONFIG_DEV = {
 
 // Production (Render)
 export const API_CONFIG_PROD = {
-  baseURL: process.env.REACT_APP_API_BASE_URL || 'https://cipherdocs-backend.onrender.com',
+  baseURL: process.env.REACT_APP_BACKEND_URL || 'https://cipherdocs.onrender.com',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
