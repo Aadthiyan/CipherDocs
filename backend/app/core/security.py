@@ -7,16 +7,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Password hashing context using bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing context using Argon2 (more secure, no byte limits)
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
     """
-    Hash a password using bcrypt.
+    Hash a password using Argon2.
     
-    Bcrypt has a 72-byte limit, so we truncate to 72 bytes.
-    This is safe because our validation limits passwords anyway.
+    Argon2 is more secure than bcrypt and has no byte limits.
     
     Args:
         password: Plain text password
@@ -24,13 +23,8 @@ def hash_password(password: str) -> str:
     Returns:
         Hashed password string
     """
-    # Truncate to 72 bytes (bcrypt limit)
-    # UTF-8 characters can be multiple bytes, so we must truncate by bytes
-    password_bytes = password.encode('utf-8')[:72]
-    truncated = password_bytes.decode('utf-8', errors='ignore')
-    
     try:
-        return pwd_context.hash(truncated)
+        return pwd_context.hash(password)
     except Exception as e:
         logger.error(f"Password hashing failed: {e}")
         raise
