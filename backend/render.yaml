@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: cipherdocs-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --workers 4 --bind 0.0.0.0:$PORT
+    plan: standard
+    envVars:
+      # Application settings
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      
+      # Database (from Neon)
+      - key: DATABASE_URL
+        sync: false  # Set in Render dashboard from your Neon connection string
+      
+      # Redis (Using Upstash - cloud-hosted)
+      - key: REDIS_URL
+        sync: false  # Set in Render dashboard from your Upstash console
+      
+      # Frontend CORS
+      - key: CORS_ORIGINS
+        value: "https://cipherdocs.vercel.app,http://localhost:3000"
+      
+      # CyborgDB Embedded Configuration
+      - key: CYBORGDB_BACKING_STORE
+        value: "memory"  # Use 'memory' for Render (fast, in-process). Use 'redis' for persistent storage.
+      
+      # Secrets (set in Render dashboard)
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MASTER_ENCRYPTION_KEY
+        sync: false

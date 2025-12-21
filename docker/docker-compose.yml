@@ -1,0 +1,106 @@
+services:
+  # CyborgDB Service - Encrypted Vector Database
+  cyborgdb:
+    image: cyborginc/cyborgdb-service:latest
+    container_name: cyborgdb_service
+    environment:
+      - CYBORGDB_API_KEY=${CYBORGDB_API_KEY}
+      - PORT=8002
+    ports:
+      - "8002:8002"
+    volumes:
+      - cyborgdb_data:/home/cyborguser/.cyborgdb
+    networks:
+      - cyborgdb_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8002/v1/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Redis (Optional - for caching)
+  # NOTE: In production (Render), uses Upstash Redis instead
+  # Local development uses this Docker Redis
+  redis:
+    image: redis:7-alpine
+    container_name: cyborgdb_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cyborgdb_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: cyborgdb_backend
+    environment:
+      # Using Neon Online Database
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/0
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - HUGGINGFACE_MODEL_NAME=${HUGGINGFACE_MODEL_NAME:-sentence-transformers/all-mpnet-base-v2}
+      - CYBORGDB_API_KEY=${CYBORGDB_API_KEY}
+      - CYBORGDB_ENDPOINT=http://cyborgdb:8002
+      - JWT_SECRET=${JWT_SECRET}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+      - document_storage:/app/storage
+    depends_on:
+      cyborgdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cyborgdb_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # React Frontend
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    container_name: cyborgdb_frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - cyborgdb_network
+    stdin_open: true
+    tty: true
+
+networks:
+  cyborgdb_network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  document_storage:
+  cyborgdb_data:
