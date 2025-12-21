@@ -11,7 +11,6 @@ from app.core.embedding import get_embedding_service
 from app.core.encryption import KeyManager
 from app.core.vector_encryption import VectorEncryptor
 from app.core.cyborg import CyborgDBManager
-from app.core.retriever import CyborgDBRetriever
 from app.core.analytics import log_search_background
 from app.core.llm import LLMAnswerService
 from app.models.database import User, Document, DocumentChunk
@@ -263,6 +262,8 @@ async def search_documents(
         response_data["llm_disclaimer"] = llm_result.get("disclaimer")
     
     return SearchResponse(**response_data)
+
+
 @router.post("/advanced", response_model=SearchResponse)
 async def advanced_search(
     request: AdvancedSearchRequest,
@@ -407,61 +408,6 @@ async def advanced_search(
                 elapsed_ms=elapsed_ms,
                 query_id=query_id
             )
-        
-        return SearchResponse(**response_data)
-        
-    except Exception as e:
-        logger.error(f"Advanced search failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Advanced search processing failed: {str(e)}"
-        )
-                    for r in formatted_results
-                ]
-                logger.info(f"Advanced LLM input results (first 2):")
-                for i, result in enumerate(llm_input_results[:2]):
-                    logger.info(f"  Result {i}: metadata keys={list(result.get('metadata', {}).keys())}")
-                    logger.info(f"            metadata={result.get('metadata', {})}")
-                    
-                llm_result = llm_service.generate_answer_from_search(
-                    query=request.query,
-                    search_results=llm_input_results,
-                    tenant_id=str(current_user.tenant_id)
-                )
-                if llm_result.get("success"):
-                    llm_answer = llm_result.get("answer")
-                    logger.info(f"LLM answer generated using {llm_result.get('tokens_used', 0)} tokens")
-                    logger.info(f"LLM sources returned: {llm_result.get('sources', [])}")
-                else:
-                    logger.warning(f"LLM answer generation failed: {llm_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                logger.error(f"Error generating LLM answer: {e}", exc_info=True)
-                # Don't fail the search if LLM fails - return results anyway
-        
-        # Log analytics
-        background_tasks.add_task(
-            log_search_background,
-            tenant_id=current_user.tenant_id,
-            user_id=current_user.id,
-            query=request.query,
-            latency_ms=elapsed_ms,
-            result_count=len(formatted_results),
-            top_k=request.top_k
-        )
-        
-        response_data = {
-            "results": formatted_results,
-            "query_id": query_id,
-            "latency_ms": elapsed_ms,
-            "total_results": len(formatted_results)
-        }
-        
-        # Add LLM answer if available
-        if llm_answer:
-            response_data["llm_answer"] = llm_answer
-            response_data["llm_sources"] = llm_result.get("sources", [])
-            response_data["llm_confidence"] = llm_result.get("confidence", 0.0)
-            response_data["llm_disclaimer"] = llm_result.get("disclaimer")
         
         return SearchResponse(**response_data)
         
