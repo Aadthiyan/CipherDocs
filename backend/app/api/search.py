@@ -271,56 +271,99 @@ async def advanced_search(
     db: Session = Depends(get_db)
 ):
     """
-    Advanced search with Context Augmentation and Reranking.
-    Uses LangChain Retriever integration.
+    Advanced search with reranking.
+    Simplified to avoid LangChain recursion issues.
     """
     start_time = time.time()
     query_id = str(uuid.uuid4())
-    logger.info(f"Advanced search {query_id} for tenant {current_user.tenant_id}")
-    
-    retriever = CyborgDBRetriever(
-        tenant_id=str(current_user.tenant_id),
-        db_session=db,
-        top_k=request.top_k,
-        augment_context=request.augment
-    )
+    tenant_id = current_user.tenant_id
+    logger.info(f"Advanced search {query_id} for tenant {tenant_id}")
     
     try:
-        # 1. Retrieve (LangChain Interface)
-        docs = retriever.get_relevant_documents(request.query)
+        # 1. Generate Query Embedding
+        embedding_service = get_embedding_service()
+        embeddings = embedding_service.generate_embeddings([request.query])
+        query_vector = embeddings[0]
         
-        # 2. Rerank (Keyword Boost)
-        if request.rerank and docs:
-            query_terms = request.query.lower().split()
-            for d in docs:
-                 text = d.page_content.lower()
-                 match_count = sum(1 for term in query_terms if term in text)
-                 # Add 5% boost per matching term
-                 current_score = d.metadata.get('score', 0.0)
-                 d.metadata['score'] = current_score * (1 + (0.05 * match_count))
-                 
-            # Re-sort descending
-            docs.sort(key=lambda x: x.metadata.get('score', 0.0), reverse=True)
-            
-        # 3. Format Response
+        # 2. Get encryption key
+        try:
+            tenant_key = KeyManager.get_tenant_key(db, tenant_id)
+        except ValueError:
+            logger.warning(f"No encryption key found for tenant {tenant_id}, creating new one")
+            KeyManager.create_tenant_key(db, tenant_id)
+            tenant_key = KeyManager.get_tenant_key(db, tenant_id)
+        
+        # 3. Encrypt query vector
+        encrypted_query = VectorEncryptor.encrypt_vector(query_vector, tenant_key)
+        
+        # 4. Search CyborgDB
+        import base64
+        index_key = base64.urlsafe_b64decode(tenant_key)
+        raw_results = CyborgDBManager.search(str(tenant_id), encrypted_query, request.top_k, index_key=list(index_key[:32]))
+        
+        if not raw_results:
+            logger.info(f"No search results found for tenant {tenant_id}")
+            return SearchResponse(results=[], query=request.query, elapsed_ms=0, total_results=0)
+        
+        # 5. Extract chunk IDs and scores
+        chunk_ids = []
+        scores_map = {}
+        for res in raw_results:
+            mid = res.get('id') if isinstance(res, dict) else getattr(res, 'id', None)
+            if mid:
+                chunk_ids.append(str(mid))
+                # Convert distance to similarity
+                if isinstance(res, dict):
+                    distance = res.get('distance')
+                    score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+                else:
+                    distance = getattr(res, 'distance', None)
+                    score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+                scores_map[str(mid)] = score
+        
+        if not chunk_ids:
+            return SearchResponse(results=[], query=request.query, elapsed_ms=0, total_results=0)
+        
+        # 6. Fetch chunks from database
+        chunks = db.query(DocumentChunk).filter(
+            DocumentChunk.id.in_(chunk_ids),
+            DocumentChunk.tenant_id == tenant_id
+        ).all()
+        
+        # 7. Rerank if requested
         formatted_results = []
-        for d in docs:
-            formatted_results.append(SearchResultItem(
-                id=d.metadata.get("source", ""),
-                score=d.metadata.get("score", 0.0),
-                text=d.page_content,
-                metadata=d.metadata
-            ))
+        for chunk in chunks:
+            chunk_id_str = str(chunk.id)
+            score = scores_map.get(chunk_id_str, 0.0)
             
+            # Apply reranking boost based on query term matches
+            if request.rerank:
+                query_terms = request.query.lower().split()
+                text = chunk.content.lower()
+                match_count = sum(1 for term in query_terms if term in text)
+                score = score * (1 + (0.05 * match_count))
+            
+            formatted_results.append(SearchResultItem(
+                id=chunk_id_str,
+                score=score,
+                text=chunk.content,
+                metadata={
+                    "document_id": str(chunk.document_id),
+                    "chunk_index": chunk.chunk_index
+                }
+            ))
+        
+        # Sort by score descending
+        formatted_results.sort(key=lambda x: x.score, reverse=True)
+        
         elapsed_ms = (time.time() - start_time) * 1000
         
-        # 4. Generate LLM Answer (Optional)
+        # 8. Generate LLM Answer (Optional)
         llm_answer = None
         llm_result = None
         if llm_service.enabled and len(formatted_results) > 0:
             try:
                 logger.info(f"Generating LLM answer for advanced search {query_id}")
-                # Convert search results to format expected by LLM service
                 llm_input_results = [
                     {
                         "text": r.text,
@@ -328,6 +371,51 @@ async def advanced_search(
                         "similarity_score": r.score,
                         "metadata": r.metadata
                     }
+                    for r in formatted_results[:5]  # Top 5 results for LLM
+                ]
+                
+                llm_result = await llm_service.generate_answer(
+                    query=request.query,
+                    search_results=llm_input_results
+                )
+                
+                if llm_result:
+                    llm_answer = llm_result.get("answer")
+                    
+            except Exception as e:
+                logger.warning(f"LLM answer generation failed: {e}")
+        
+        response_data = {
+            "query": request.query,
+            "results": formatted_results,
+            "total_results": len(formatted_results),
+            "elapsed_ms": elapsed_ms,
+            "llm_answer": llm_answer,
+            "llm_sources": llm_result.get("sources", []) if llm_result else [],
+            "llm_confidence": llm_result.get("confidence", 0.0) if llm_result else 0.0,
+            "llm_disclaimer": llm_result.get("disclaimer") if llm_result else None
+        }
+        
+        # Log search analytics in background
+        if background_tasks:
+            background_tasks.add_task(
+                log_search_background,
+                query=request.query,
+                tenant_id=tenant_id,
+                user_id=current_user.id,
+                result_count=len(formatted_results),
+                elapsed_ms=elapsed_ms,
+                query_id=query_id
+            )
+        
+        return SearchResponse(**response_data)
+        
+    except Exception as e:
+        logger.error(f"Advanced search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Advanced search processing failed: {str(e)}"
+        )
                     for r in formatted_results
                 ]
                 logger.info(f"Advanced LLM input results (first 2):")
