@@ -86,14 +86,14 @@ class CyborgDBManager:
             return False
             
     @classmethod
-    def create_tenant_index(cls, tenant_id: str, dimension: int = 384, key: bytes = None) -> str:
+    def create_tenant_index(cls, tenant_id: str, dimension: int = 384, key: str = None) -> str:
         """
         Create an encrypted index for a tenant.
         
         Args:
             tenant_id: UUID string
             dimension: Vector dimension (default 384 for sentence-transformers)
-            key: Tenant encryption key (32 bytes)
+            key: Tenant encryption key (base64 string or bytes)
             
         Returns:
             Index name (str)
@@ -104,18 +104,41 @@ class CyborgDBManager:
         try:
             logger.info(f"Creating CyborgDB index: {index_name}")
             
-            # Generate key if not provided
+            # Convert key to 32-element list if provided
             if key is None:
-                key = secrets.token_bytes(32)
+                # Generate random 32 bytes
+                key_bytes = secrets.token_bytes(32)
+                key_list = list(key_bytes)
                 logger.debug(f"Generated 32-byte encryption key for {index_name}")
+            elif isinstance(key, str):
+                # If it's a base64 string, decode it first
+                try:
+                    import base64
+                    key_bytes = base64.urlsafe_b64decode(key)
+                    key_list = list(key_bytes[:32])  # Take first 32 bytes
+                except Exception:
+                    # If not valid base64, use as-is and convert to list
+                    key_bytes = key.encode('utf-8')[:32]
+                    key_list = list(key_bytes)
+            elif isinstance(key, bytes):
+                # If bytes, convert to list (max 32 elements)
+                key_list = list(key[:32])
+            else:
+                # Already a list or similar
+                key_list = list(key)[:32]
+            
+            # Ensure exactly 32 elements
+            while len(key_list) < 32:
+                key_list.append(0)
+            key_list = key_list[:32]
             
             # Store the key for later use
-            cls._index_keys[index_name] = key
+            cls._index_keys[index_name] = key_list
             
-            # Create encrypted index
+            # Create encrypted index with 32-element list
             index = client.create_index(
                 index_name=index_name,
-                index_key=key
+                index_key=key_list
             )
             
             cls._indexes[index_name] = index
@@ -126,9 +149,9 @@ class CyborgDBManager:
             if "exists" in str(e).lower() or "already" in str(e).lower():
                 logger.info(f"Index {index_name} already exists, loading it")
                 try:
-                    index = client.load_index(index_name=index_name, index_key=key)
+                    index = client.load_index(index_name=index_name, index_key=key_list)
                     cls._indexes[index_name] = index
-                    cls._index_keys[index_name] = key
+                    cls._index_keys[index_name] = key_list
                     return index_name
                 except Exception as load_err:
                     logger.error(f"Failed to load existing index {index_name}: {load_err}")
