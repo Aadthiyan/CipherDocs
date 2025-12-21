@@ -304,7 +304,8 @@ async def advanced_search(
         
         if not raw_results:
             logger.info(f"No search results found for tenant {tenant_id}")
-            return SearchResponse(results=[], query=request.query, elapsed_ms=0, total_results=0)
+            elapsed_ms = (time.time() - start_time) * 1000
+            return SearchResponse(results=[], query_id=query_id, latency_ms=elapsed_ms, total_results=0)
         
         # 5. Extract chunk IDs and scores
         chunk_ids = []
@@ -323,7 +324,8 @@ async def advanced_search(
                 scores_map[str(mid)] = score
         
         if not chunk_ids:
-            return SearchResponse(results=[], query=request.query, elapsed_ms=0, total_results=0)
+            elapsed_ms = (time.time() - start_time) * 1000
+            return SearchResponse(results=[], query_id=query_id, latency_ms=elapsed_ms, total_results=0)
         
         # 6. Fetch chunks from database
         chunks = db.query(DocumentChunk).filter(
@@ -387,10 +389,10 @@ async def advanced_search(
                 logger.warning(f"LLM answer generation failed: {e}")
         
         response_data = {
-            "query": request.query,
+            "query_id": query_id,
             "results": formatted_results,
             "total_results": len(formatted_results),
-            "elapsed_ms": elapsed_ms,
+            "latency_ms": elapsed_ms,
             "llm_answer": llm_answer,
             "llm_sources": llm_result.get("sources", []) if llm_result else [],
             "llm_confidence": llm_result.get("confidence", 0.0) if llm_result else 0.0,
