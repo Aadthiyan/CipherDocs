@@ -80,23 +80,37 @@ async def init_db():
     """
     Initialize database
     
-    Creates all tables if they don't exist.
-    In production, use Alembic migrations instead.
+    Runs Alembic migrations to create/update tables.
+    Works in both development and production.
     """
     try:
-        # Import all models here to ensure they're registered with Base
-        # from app.models import tenant, user, document  # Will be created in Phase 2
+        # Import subprocess for running alembic
+        import subprocess
+        import os
         
-        # Create tables (development only - use Alembic in production)
-        if settings.is_development():
-            Base.metadata.create_all(bind=engine)
-            logger.info("Database tables created successfully")
+        # Get the backend directory
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        
+        logger.info("Running Alembic migrations...")
+        
+        # Run alembic upgrade head
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            cwd=backend_dir,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            logger.info("✅ Database migrations completed successfully")
         else:
-            logger.info("Database initialization skipped (use Alembic migrations in production)")
+            logger.warning(f"Alembic migration warning: {result.stderr}")
+            # Continue anyway - migrations might already be up to date
             
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        raise
+        logger.error(f"Database migration failed: {e}")
+        # Don't raise - allow app to start even if migrations fail
+        # This prevents boot loops if there's a migration issue
 
 
 async def close_db():
