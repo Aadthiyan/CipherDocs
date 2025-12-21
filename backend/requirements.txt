@@ -27,7 +27,9 @@ PyPDF2>=3.0.0
 groq>=0.4.0
 
 # Vector Database - Encrypted Vector Search (Embedded)
-cyborgdb-core>=0.1.0
+# Using cyborgdb-lite for evaluation/hackathon (free version)
+# Supports up to 1M vectors, PostgreSQL and Memory backends
+cyborgdb-lite
 
 # Embeddings & ML (Local models)
 sentence-transformers>=2.2.0

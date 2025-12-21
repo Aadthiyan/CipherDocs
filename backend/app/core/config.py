@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     MASTER_ENCRYPTION_KEY: str = Field(..., description="Master encryption key for tenant keys")
     
     # CyborgDB Embedded (integrated directly in FastAPI backend)
+    CYBORGDB_API_KEY: Optional[str] = Field(default=None, description="CyborgDB API key (from cyborgdb.co)")
     CYBORGDB_BACKING_STORE: str = Field(
         default="memory",
         description="CyborgDB backing store: 'memory' (fast, in-process) or 'redis' (persistent)"

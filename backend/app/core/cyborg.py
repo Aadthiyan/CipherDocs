@@ -1,131 +1,84 @@
 """
 CyborgDB Embedded client configuration and connection management.
 
-Uses CyborgDB as an embedded Python library directly integrated into the FastAPI application.
-This approach requires no separate service deployment and keeps vector search within the backend process.
+Uses CyborgDB Lite (evaluation version) for encrypted vector search.
+Perfect for hackathons and prototypes with up to 1M vectors.
 """
 
 import logging
-import time
-import os
 import secrets
-from typing import Optional
+import os
+from typing import Optional, List, Dict
 
 try:
-    from cyborgdb_core import Client, IndexIVFFlat
+    import cyborgdb_lite as cyborgdb
+    CYBORGDB_AVAILABLE = True
 except ImportError:
-    # Fallback for dev/mocking if package not installed
-    logging.warning("CyborgDB embedded package not found. Using mock client.")
-    
-    class IndexIVFFlat:
-        """Mock index config"""
-        def __init__(self, dimension: int, n_clusters: int):
-            self.dimension = dimension
-            self.n_clusters = n_clusters
-    
-    class MockIndex:
-        """Mock index for development/testing"""
-        def __init__(self, name: str):
-            self.name = name
-            self.vectors = {}
-            
-        def upsert(self, vectors):
-            """Store vectors in mock index"""
-            for v in vectors:
-                self.vectors[v["id"]] = v
-            return len(vectors)
-            
-        def query(self, vector, top_k=10):
-            """Mock query - returns all stored vectors (no actual search)"""
-            # In a real implementation, would do similarity search
-            # For mock, just return stored vectors
-            results = list(self.vectors.values())[:top_k]
-            return {"matches": results} if results else {"matches": []}
-    
-    class Client:
-        def __init__(self, backing_store: str = "memory", connection_string: str = None):
-            """Initialize embedded client"""
-            self.backing_store = backing_store
-            self.connection_string = connection_string
-            self.indexes = {}
-        
-        def list_indexes(self):
-            return list(self.indexes.keys())
-            
-        def create_index(self, index_name: str, index_key: bytes, index_config=None, embedding_model=None, metric=None):
-            if index_name in self.indexes:
-                raise ValueError("Index already exists")
-            self.indexes[index_name] = {
-                "key": index_key,
-                "config": index_config,
-                "index": MockIndex(index_name)
-            }
-            return self.indexes[index_name]["index"]
-            
-        def load_index(self, index_name: str, index_key: bytes = None):
-            """Load an existing index"""
-            if index_name not in self.indexes:
-                raise ValueError(f"Index {index_name} not found")
-            return self.indexes[index_name]["index"]
-            
-        def delete_index(self, index_name: str):
-            if index_name in self.indexes:
-                del self.indexes[index_name]
+    CYBORGDB_AVAILABLE = False
+    logging.warning("CyborgDB Lite not installed. Vector search will not work.")
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class CyborgDBManager:
     """
-    Singleton manager for embedded CyborgDB client.
-    Handles initialization, connection pooling, and resource management.
-    
-    The embedded approach runs CyborgDB directly in the FastAPI process,
-    eliminating the need for a separate microservice and reducing latency.
+    Manager for CyborgDB Lite embedded client.
+    Handles initialization and encrypted vector operations for tenants.
     """
-    _client: Optional[Client] = None
-    _storage_path: str = "/tmp/cyborgdb_storage"  # Persistent storage location
+    _client: Optional = None
+    _indexes: Dict[str, any] = {}
+    _index_keys: Dict[str, bytes] = {}
     
     @classmethod
-    def get_client(cls) -> Client:
-        """
-        Get or initialize the embedded CyborgDB client.
-        """
-        if cls._client:
+    def get_client(cls):
+        """Get or initialize the CyborgDB client"""
+        if cls._client is not None:
             return cls._client
         
+        if not CYBORGDB_AVAILABLE:
+            raise RuntimeError("CyborgDB Lite is not installed")
+        
         try:
-            logger.info("Initializing embedded CyborgDB client...")
+            logger.info("Initializing CyborgDB Lite client...")
             
-            # Ensure storage directory exists
-            os.makedirs(cls._storage_path, exist_ok=True)
+            # Configure storage locations (using memory for hackathon/demo)
+            # For production, use Redis or PostgreSQL
+            backing_store = settings.CYBORGDB_BACKING_STORE or "memory"
             
-            # Initialize embedded client with file-based backing store
-            # "redis" backing store for persistent storage (optional)
-            # "memory" for in-memory (faster but not persistent)
-            backing_store = settings.CYBORGDB_BACKING_STORE
+            index_location = cyborgdb.DBConfig(backing_store)
+            config_location = cyborgdb.DBConfig(backing_store)
+            items_location = cyborgdb.DBConfig(backing_store)
             
-            if backing_store == "redis" and settings.REDIS_URL:
-                # Use Redis as backing store for persistence
-                cls._client = Client(backing_store="redis", connection_string=settings.REDIS_URL)
-                logger.info("CyborgDB using Redis backing store")
-            else:
-                # Use memory-based storage (recommended for Render)
-                cls._client = Client(backing_store="memory")
-                logger.info("CyborgDB using in-memory backing store")
+            # Get API key from settings (set CYBORGDB_API_KEY in .env)
+            api_key = os.getenv("CYBORGDB_API_KEY", "")
             
+            if not api_key:
+                logger.warning("CYBORGDB_API_KEY not set. Using default (may have limitations)")
+            
+            # Create CyborgDB client
+            cls._client = cyborgdb.Client(
+                api_key=api_key,
+                index_location=index_location,
+                config_location=config_location,
+                items_location=items_location
+            )
+            
+            logger.info(f"CyborgDB Lite initialized with {backing_store} backing store")
             return cls._client
             
         except Exception as e:
-            logger.error(f"Failed to initialize CyborgDB embedded client: {e}")
+            logger.error(f"Failed to initialize CyborgDB Lite: {e}")
             raise e
-
+    
     @classmethod
     def check_health(cls) -> bool:
-        """Check availability"""
+        """Check if CyborgDB is available and working"""
         try:
-            client = cls.get_client()
+            if not CYBORGDB_AVAILABLE:
+                return False
+            cls.get_client()
             logger.debug("CyborgDB health check passed")
             return True
         except Exception as e:
@@ -135,7 +88,7 @@ class CyborgDBManager:
     @classmethod
     def create_tenant_index(cls, tenant_id: str, dimension: int = 384, key: bytes = None) -> str:
         """
-        Create an encrypted index for a tenant using embedded CyborgDB.
+        Create an encrypted index for a tenant.
         
         Args:
             tenant_id: UUID string
@@ -149,30 +102,37 @@ class CyborgDBManager:
         index_name = f"tenant_{tenant_id}"
         
         try:
-            logger.info(f"Creating embedded CyborgDB index: {index_name}")
+            logger.info(f"Creating CyborgDB index: {index_name}")
             
             # Generate key if not provided
             if key is None:
                 key = secrets.token_bytes(32)
                 logger.debug(f"Generated 32-byte encryption key for {index_name}")
             
-            # Create encrypted index using embedded SDK
-            # IndexIVFFlat: Inverted File Index with Flat quantization (good balance)
-            index_config = IndexIVFFlat(dimension, n_clusters=min(100, max(4, dimension // 40)))
+            # Store the key for later use
+            cls._index_keys[index_name] = key
             
+            # Create encrypted index
             index = client.create_index(
                 index_name=index_name,
-                index_key=key,
-                index_config=index_config,
-                metric="cosine"
+                index_key=key
             )
+            
+            cls._indexes[index_name] = index
             logger.info(f"Index {index_name} created successfully with dimension={dimension}")
             return index_name
             
         except Exception as e:
-            if "exists" in str(e).lower() or "conflict" in str(e).lower():
-                logger.info(f"Index {index_name} already exists")
-                return index_name
+            if "exists" in str(e).lower() or "already" in str(e).lower():
+                logger.info(f"Index {index_name} already exists, loading it")
+                try:
+                    index = client.load_index(index_name=index_name, index_key=key)
+                    cls._indexes[index_name] = index
+                    cls._index_keys[index_name] = key
+                    return index_name
+                except Exception as load_err:
+                    logger.error(f"Failed to load existing index {index_name}: {load_err}")
+                    raise load_err
             
             logger.error(f"Failed to create index {index_name}: {e}")
             raise e
@@ -184,21 +144,26 @@ class CyborgDBManager:
         index_name = f"tenant_{tenant_id}"
         
         try:
-            logger.info(f"Deleting embedded CyborgDB index: {index_name}")
+            logger.info(f"Deleting CyborgDB index: {index_name}")
             client.delete_index(index_name)
+            
+            # Clean up local references
+            if index_name in cls._indexes:
+                del cls._indexes[index_name]
+            if index_name in cls._index_keys:
+                del cls._index_keys[index_name]
+                
             logger.info(f"Index {index_name} deleted successfully")
             
         except Exception as e:
             logger.error(f"Failed to delete index {index_name}: {e}")
-            if "not found" in str(e).lower():
-                pass
-            else:
+            if "not found" not in str(e).lower():
                 raise e
 
     @classmethod
     def upsert_vectors(cls, tenant_id: str, vectors: list, index_key: bytes = None) -> int:
         """
-        Upsert encrypted vectors to the tenant's embedded index.
+        Upsert encrypted vectors to the tenant's index.
         
         Args:
             tenant_id: Tenant UUID
@@ -208,19 +173,32 @@ class CyborgDBManager:
         Returns:
             Number of vectors upserted
         """
-        client = cls.get_client()
         index_name = f"tenant_{tenant_id}"
         
         try:
-            # Load index reference
-            index = client.load_index(index_name, index_key)
+            # Get or create index
+            if index_name not in cls._indexes:
+                logger.warning(f"Index {index_name} not found, creating new one")
+                cls.create_tenant_index(tenant_id, key=index_key)
             
-            logger.info(f"Upserting {len(vectors)} vectors to {index_name}")
+            index = cls._indexes[index_name]
             
-            # Upsert vectors to embedded index
-            result = index.upsert(vectors)
-            logger.debug(f"Upserted {result} vectors to {index_name}")
-            return result
+            # Convert to CyborgDB format: {"id": str, "vector": list, "contents": any}
+            items = []
+            for v in vectors:
+                item = {
+                    "id": v["id"],
+                    "vector": v["values"],
+                    "contents": v.get("metadata", {})
+                }
+                items.append(item)
+            
+            logger.info(f"Upserting {len(items)} vectors to {index_name}")
+            
+            # Upsert to CyborgDB
+            index.upsert(items)
+            logger.debug(f"Upserted {len(items)} vectors to {index_name}")
+            return len(items)
             
         except Exception as e:
             logger.error(f"Failed to upsert vectors to {index_name}: {e}")
@@ -229,7 +207,7 @@ class CyborgDBManager:
     @classmethod
     def search(cls, tenant_id: str, query_vector: list, top_k: int = 10, index_key: bytes = None) -> list:
         """
-        Search the tenant's encrypted embedded index.
+        Search the tenant's encrypted index.
         
         Args:
             tenant_id: Tenant UUID
@@ -240,35 +218,50 @@ class CyborgDBManager:
         Returns:
             List of search results with metadata
         """
-        client = cls.get_client()
         index_name = f"tenant_{tenant_id}"
         
         try:
-            # Load index reference
-            index = client.load_index(index_name, index_key)
+            # Check if index exists
+            if index_name not in cls._indexes:
+                logger.warning(f"Index {index_name} not found, attempting to load")
+                client = cls.get_client()
+                try:
+                    # Try to load the index
+                    key = index_key or cls._index_keys.get(index_name)
+                    if not key:
+                        logger.warning(f"No key available for {index_name} - returning empty results")
+                        return []
+                    
+                    index = client.load_index(index_name=index_name, index_key=key)
+                    cls._indexes[index_name] = index
+                    cls._index_keys[index_name] = key
+                except Exception as load_err:
+                    logger.warning(f"Failed to load index {index_name}: {load_err} - returning empty results")
+                    return []
             
-            # Perform encrypted search on embedded index
-            response = index.query(
-                query_vectors=[query_vector],
-                top_k=top_k
-            )
+            index = cls._indexes[index_name]
             
-            logger.debug(f"Embedded CyborgDB search returned results")
+            # Perform encrypted search
+            results = index.query(query_vectors=query_vector, top_k=top_k)
             
-            # Normalize response if needed
-            if isinstance(response, dict) and 'matches' in response:
-                return response['matches']
-                
-            return response if isinstance(response, list) else []
+            # Convert CyborgDB results to expected format
+            formatted_results = []
+            for result in results:
+                formatted_results.append({
+                    "id": result["id"],
+                    "score": 1.0 / (1.0 + result.get("distance", 0)),  # Convert distance to similarity
+                    "metadata": result.get("contents", {})
+                })
+            
+            logger.debug(f"CyborgDB search returned {len(formatted_results)} results")
+            return formatted_results
             
         except Exception as e:
-            # Check if it's an index not found error
-            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
-                logger.warning(f"Index {index_name} not found - returning empty results")
-                return []
             logger.error(f"Search failed for {index_name}: {e}")
             raise e
 
-# Global access
-def get_cyborg_client() -> Client:
+
+# Global access (compatibility)
+def get_cyborg_client():
+    """Get the CyborgDB client"""
     return CyborgDBManager.get_client()
