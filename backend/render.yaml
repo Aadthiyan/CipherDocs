@@ -30,6 +30,16 @@ services:
       - key: CYBORGDB_BACKING_STORE
         value: "postgresql"  # Use PostgreSQL for persistence across worker restarts
       
+      # LLM Configuration
+      - key: LLM_ANSWER_GENERATION_ENABLED
+        value: "true"
+      - key: GROQ_MODEL
+        value: "llama-3.1-70b-versatile"
+      - key: LLM_MAX_TOKENS
+        value: "1500"
+      - key: LLM_TEMPERATURE
+        value: "0.3"
+      
       # Secrets (set in Render dashboard)
       - key: JWT_SECRET_KEY
         sync: false
