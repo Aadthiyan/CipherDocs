@@ -318,6 +318,8 @@ async def advanced_search(
                 else:
                     distance = getattr(res, 'distance', None)
                     score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+                
+                logger.info(f"Chunk {mid}: distance={distance}, calculated_score={score}")
                 scores_map[str(mid)] = score
         
         if not chunk_ids:
