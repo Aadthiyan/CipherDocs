@@ -167,26 +167,34 @@ async def upload_document(
         db.commit()
         db.refresh(document)
         
-        # Process document (synchronous by default, Celery disabled for free tier)
-        processing_result = None
-        try:
-            # Use synchronous processing (no Celery/Redis required)
-            # This works perfectly fine for hackathon use cases
-            logger.info(f"Starting synchronous processing for document {document.id}")
-            from app.processing.sync_processor import process_document_sync
-            processing_result = await process_document_sync(document.id, db)
-            logger.info(f"Synchronous processing completed: {processing_result}")
-        except Exception as sync_error:
-            logger.error(f"Synchronous processing failed: {sync_error}", exc_info=True)
-            # Document remains in 'uploaded' status for manual retry
-        
+        # Return immediately to avoid Render free tier 60s timeout
+        # Processing continues in background task
         logger.info(
             f"Document uploaded: id={document.id} filename={file.filename} "
             f"size={file_size} tenant_id={tenant_id} user_id={current_user.id}"
         )
         
-        # Refresh document to get updated status
-        db.refresh(document)
+        # Start background processing (fire-and-forget to avoid timeout)
+        import asyncio
+        from app.processing.sync_processor import process_document_sync
+        
+        async def background_process():
+            """Process document in background to avoid HTTP timeout"""
+            try:
+                logger.info(f"Starting background processing for document {document.id}")
+                # Create new db session for background task
+                from app.db.database import SessionLocal
+                bg_db = SessionLocal()
+                try:
+                    result = await process_document_sync(document.id, bg_db)
+                    logger.info(f"Background processing completed: {result}")
+                finally:
+                    bg_db.close()
+            except Exception as e:
+                logger.error(f"Background processing failed for {document.id}: {e}", exc_info=True)
+        
+        # Fire background task without awaiting
+        asyncio.create_task(background_process())
         
         return DocumentUploadResponse(
             id=document.id,
@@ -198,7 +206,7 @@ async def upload_document(
             storage_path=document.storage_path,
             tenant_id=document.tenant_id,
             uploaded_at=document.uploaded_at,
-            message=f"Document uploaded and {processing_result['status'] if processing_result else 'queued for processing'}"
+            message="Document uploaded successfully. Processing in background."
         )
         
     except Exception as e:
