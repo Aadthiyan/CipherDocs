@@ -46,20 +46,15 @@ class CyborgDBManager:
             # Configure storage locations - use PostgreSQL for persistence across restarts
             # CyborgDB supports: memory, postgresql, redis
             # PostgreSQL provides durability and survives worker restarts
-            backing_store = settings.CYBORGDB_BACKING_STORE or "postgresql"
+            # Force PostgreSQL for production (ignore env var to ensure persistence)
+            backing_store = "postgresql"
             
-            # If using PostgreSQL, provide connection URL
-            if backing_store == "postgresql":
-                db_url = settings.DATABASE_URL
-                logger.info(f"CyborgDB using PostgreSQL backing store for persistence")
-                index_location = cyborgdb.DBConfig("postgresql", db_url)
-                config_location = cyborgdb.DBConfig("postgresql", db_url)
-                items_location = cyborgdb.DBConfig("postgresql", db_url)
-            else:
-                # Fallback to memory if explicitly set
-                index_location = cyborgdb.DBConfig(backing_store)
-                config_location = cyborgdb.DBConfig(backing_store)
-                items_location = cyborgdb.DBConfig(backing_store)
+            # Use PostgreSQL with database connection URL
+            db_url = settings.DATABASE_URL
+            logger.info(f"CyborgDB using PostgreSQL backing store for persistence")
+            index_location = cyborgdb.DBConfig("postgresql", db_url)
+            config_location = cyborgdb.DBConfig("postgresql", db_url)
+            items_location = cyborgdb.DBConfig("postgresql", db_url)
             
             # Get API key from settings (set CYBORGDB_API_KEY in .env)
             api_key = os.getenv("CYBORGDB_API_KEY", "")
@@ -288,8 +283,13 @@ class CyborgDBManager:
             index = cls._indexes[index_name]
             
             # Perform encrypted search
-            # CyborgDB expects query_vectors as List[List[float]], not flat list
-            query_vectors = [query_vector] if isinstance(query_vector[0], (int, float)) else query_vector
+            # CyborgDB expects query_vectors as List[List[float]] (2D array)
+            # Input query_vector is List[float] (1D array), so wrap it
+            if not isinstance(query_vector[0], list):
+                query_vectors = [query_vector]  # Wrap 1D list into 2D
+            else:
+                query_vectors = query_vector  # Already 2D
+            
             results = index.query(query_vectors=query_vectors, top_k=top_k)
             
             # Convert CyborgDB results to expected format
