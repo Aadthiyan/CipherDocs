@@ -234,7 +234,12 @@ class LLMAnswerService:
     
     def __init__(self, settings: Settings):
         """Initialize LLM service"""
-        self.enabled = settings.LLM_ANSWER_GENERATION_ENABLED
+        self.enabled = settings.LLM_ANSWER_GENERATION_ENABLED and settings.GROQ_API_KEY is not None
+        
+        if settings.LLM_ANSWER_GENERATION_ENABLED and not settings.GROQ_API_KEY:
+            logger.warning("LLM answer generation is enabled but GROQ_API_KEY is not set. Disabling LLM features.")
+            self.enabled = False
+        
         self.generator = GroqAnswerGenerator(settings) if self.enabled else None
     
     def generate_answer_from_search(
