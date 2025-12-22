@@ -280,6 +280,18 @@ class CyborgDBManager:
             
             index = cls._indexes[index_name]
             
+            # Get the encryption key for this index (required for encrypted search)
+            key = index_key or cls._index_keys.get(index_name)
+            if not key:
+                logger.error(f"No encryption key available for searching {index_name}")
+                return []
+            
+            # Ensure key is list[int] format
+            if isinstance(key, bytes):
+                key = list(key[:32])
+                while len(key) < 32:
+                    key.append(0)
+            
             # Perform encrypted search
             # CyborgDB expects query_vectors as List[List[float]] (2D array)
             # Input query_vector is List[float] (1D array), so wrap it
@@ -288,7 +300,8 @@ class CyborgDBManager:
             else:
                 query_vectors = query_vector  # Already 2D
             
-            results = index.query(query_vectors=query_vectors, top_k=top_k)
+            # Pass index_key to query for encrypted search
+            results = index.query(query_vectors=query_vectors, top_k=top_k, index_key=key)
             
             # Convert CyborgDB results to expected format
             import json
