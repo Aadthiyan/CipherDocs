@@ -110,7 +110,7 @@ async def process_document_sync(document_id: uuid.UUID, db: Session) -> dict:
             tenant_key = KeyManager.get_tenant_key(db, document.tenant_id)
         
         # Batch processing
-        BATCH_SIZE = 32
+        BATCH_SIZE = 16
         db_chunks = []
         
         total_chunks = len(chunks)
