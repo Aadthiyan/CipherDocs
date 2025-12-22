@@ -311,16 +311,14 @@ async def advanced_search(
             mid = res.get('id') if isinstance(res, dict) else getattr(res, 'id', None)
             if mid:
                 chunk_ids.append(str(mid))
-                # Convert distance to similarity
+                # CyborgDB already returns computed score (not distance)
                 if isinstance(res, dict):
-                    distance = res.get('distance')
-                    score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+                    score = res.get('score', 0.0)
                 else:
-                    distance = getattr(res, 'distance', None)
-                    score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+                    score = getattr(res, 'score', 0.0)
                 
-                logger.info(f"Chunk {mid}: distance={distance}, calculated_score={score}")
-                scores_map[str(mid)] = score
+                logger.info(f"Chunk {mid}: score={score}")
+                scores_map[str(mid)] = float(score)
         
         if not chunk_ids:
             elapsed_ms = (time.time() - start_time) * 1000

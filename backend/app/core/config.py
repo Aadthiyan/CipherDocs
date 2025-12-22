@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     
     # LLM Configuration (Groq)
     GROQ_API_KEY: Optional[str] = Field(default=None, description="Groq API key")
-    GROQ_MODEL: str = Field(default="mixtral-8x7b-32768", description="Groq model to use")
+    GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", description="Groq model to use")
     LLM_ANSWER_GENERATION_ENABLED: bool = Field(default=True, description="Enable LLM answer generation")
     LLM_MAX_TOKENS: int = Field(default=512, description="Max tokens for LLM response (reduced to stay within rate limits)")
     LLM_TEMPERATURE: float = Field(default=0.7, description="Temperature for LLM response generation")
