@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import time
 import uuid
 import logging
@@ -324,8 +324,10 @@ async def advanced_search(
             elapsed_ms = (time.time() - start_time) * 1000
             return SearchResponse(results=[], query_id=query_id, latency_ms=elapsed_ms, total_results=0)
         
-        # 6. Fetch chunks from database
-        chunks = db.query(DocumentChunk).filter(
+        # 6. Fetch chunks from database with document relationship
+        chunks = db.query(DocumentChunk).options(
+            joinedload(DocumentChunk.document)
+        ).filter(
             DocumentChunk.id.in_(chunk_ids),
             DocumentChunk.tenant_id == tenant_id
         ).all()
@@ -349,7 +351,9 @@ async def advanced_search(
                 text=chunk.text,
                 metadata={
                     "document_id": str(chunk.doc_id),
-                    "chunk_index": chunk.chunk_sequence
+                    "chunk_index": chunk.chunk_sequence,
+                    "filename": chunk.document.filename if chunk.document else "Unknown",
+                    "page_number": chunk.page_number
                 }
             ))
         
