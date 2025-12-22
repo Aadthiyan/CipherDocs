@@ -206,13 +206,17 @@ class CyborgDBManager:
             
             index = cls._indexes[index_name]
             
-            # Convert to CyborgDB format: {"id": str, "vector": list, "contents": any}
+            # Convert to CyborgDB format: {"id": str, "vector": list, "contents": str or bytes}
+            import json
             items = []
             for v in vectors:
+                metadata = v.get("metadata", {})
+                # Convert metadata dict to JSON string for contents field
+                contents = json.dumps(metadata) if isinstance(metadata, dict) else str(metadata)
                 item = {
                     "id": v["id"],
                     "vector": v["vector"],  # Use "vector" key from input
-                    "contents": v.get("metadata", {})
+                    "contents": contents
                 }
                 items.append(item)
             
@@ -265,7 +269,9 @@ class CyborgDBManager:
             index = cls._indexes[index_name]
             
             # Perform encrypted search
-            results = index.query(query_vectors=query_vector, top_k=top_k)
+            # CyborgDB expects query_vectors as List[List[float]], not flat list
+            query_vectors = [query_vector] if isinstance(query_vector[0], (int, float)) else query_vector
+            results = index.query(query_vectors=query_vectors, top_k=top_k)
             
             # Convert CyborgDB results to expected format
             formatted_results = []
