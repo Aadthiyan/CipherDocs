@@ -167,23 +167,18 @@ async def upload_document(
         db.commit()
         db.refresh(document)
         
-        # Process document (synchronous or async depending on availability)
+        # Process document (synchronous by default, Celery disabled for free tier)
         processing_result = None
         try:
-            # Try Celery first (if Redis is available)
-            from app.worker import process_document_task
-            process_document_task.delay(str(document.id))
-            logger.info(f"Triggered Celery background processing for document {document.id}")
-        except Exception as celery_error:
-            # Fallback to synchronous processing if Celery/Redis not available
-            logger.warning(f"Celery not available ({celery_error}), using synchronous processing")
-            try:
-                from app.processing.sync_processor import process_document_sync
-                processing_result = await process_document_sync(document.id, db)
-                logger.info(f"Synchronous processing completed: {processing_result}")
-            except Exception as sync_error:
-                logger.error(f"Synchronous processing also failed: {sync_error}")
-                # Document remains in 'uploaded' status for manual retry
+            # Use synchronous processing (no Celery/Redis required)
+            # This works perfectly fine for hackathon use cases
+            logger.info(f"Starting synchronous processing for document {document.id}")
+            from app.processing.sync_processor import process_document_sync
+            processing_result = await process_document_sync(document.id, db)
+            logger.info(f"Synchronous processing completed: {processing_result}")
+        except Exception as sync_error:
+            logger.error(f"Synchronous processing failed: {sync_error}", exc_info=True)
+            # Document remains in 'uploaded' status for manual retry
         
         logger.info(
             f"Document uploaded: id={document.id} filename={file.filename} "
