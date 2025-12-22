@@ -74,14 +74,18 @@ async def search_documents(
         
     # 3. Search CyborgDB
     try:
-        # Convert tenant_key (base64 string) to bytes for CyborgDB index_key
+        # Convert tenant_key (base64 string) to bytes, then to list of integers for CyborgDB
         import base64
-        index_key = base64.urlsafe_b64decode(tenant_key)
+        index_key_bytes = base64.urlsafe_b64decode(tenant_key)
+        index_key_list = list(index_key_bytes[:32])
+        # Pad with zeros if needed
+        while len(index_key_list) < 32:
+            index_key_list.append(0)
         raw_results = CyborgDBManager.search(
             str(tenant_id),
             encrypted_query,
             top_k=request.top_k,
-            index_key=index_key
+            index_key=index_key_list
         )
     except Exception as e:
         logger.error(f"CyborgDB search failed: {e}")

@@ -291,12 +291,16 @@ class CyborgDBManager:
             results = index.query(query_vectors=query_vectors, top_k=top_k)
             
             # Convert CyborgDB results to expected format
+            import json
             formatted_results = []
             for result in results:
+                # Parse contents JSON string back to dict
+                contents = result.get("contents", "{}")
+                metadata = json.loads(contents) if isinstance(contents, str) else contents
                 formatted_results.append({
                     "id": result["id"],
                     "score": 1.0 / (1.0 + result.get("distance", 0)),  # Convert distance to similarity
-                    "metadata": result.get("contents", {})
+                    "metadata": metadata
                 })
             
             logger.debug(f"CyborgDB search returned {len(formatted_results)} results")
