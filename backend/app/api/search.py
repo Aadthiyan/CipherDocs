@@ -378,12 +378,13 @@ async def advanced_search(
                     for r in formatted_results[:5]  # Top 5 results for LLM
                 ]
                 
-                llm_result = await llm_service.generate_answer(
+                llm_result = llm_service.generate_answer_from_search(
                     query=request.query,
-                    search_results=llm_input_results
+                    search_results=llm_input_results,
+                    tenant_id=str(tenant_id)
                 )
                 
-                if llm_result:
+                if llm_result and llm_result.get("success"):
                     llm_answer = llm_result.get("answer")
                     
             except Exception as e:
@@ -404,12 +405,12 @@ async def advanced_search(
         if background_tasks:
             background_tasks.add_task(
                 log_search_background,
-                query=request.query,
                 tenant_id=tenant_id,
                 user_id=current_user.id,
+                query=request.query,
+                latency_ms=elapsed_ms,
                 result_count=len(formatted_results),
-                elapsed_ms=elapsed_ms,
-                query_id=query_id
+                top_k=request.top_k
             )
         
         return SearchResponse(**response_data)
