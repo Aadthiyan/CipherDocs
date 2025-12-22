@@ -190,7 +190,7 @@ class CyborgDBManager:
         
         Args:
             tenant_id: Tenant UUID
-            vectors: List of dicts [{"id": str, "values": list[float], "metadata": dict}]
+            vectors: List of dicts [{"id": str, "vector": list[float], "metadata": dict}]
             index_key: 32-byte encryption key for the index (bytes)
             
         Returns:
@@ -211,7 +211,7 @@ class CyborgDBManager:
             for v in vectors:
                 item = {
                     "id": v["id"],
-                    "vector": v["values"],
+                    "vector": v["vector"],  # Use "vector" key from input
                     "contents": v.get("metadata", {})
                 }
                 items.append(item)
