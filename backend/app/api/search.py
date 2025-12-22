@@ -339,17 +339,17 @@ async def advanced_search(
             # Apply reranking boost based on query term matches
             if request.rerank:
                 query_terms = request.query.lower().split()
-                text = chunk.content.lower()
+                text = chunk.text.lower()
                 match_count = sum(1 for term in query_terms if term in text)
                 score = score * (1 + (0.05 * match_count))
             
             formatted_results.append(SearchResultItem(
                 id=chunk_id_str,
                 score=score,
-                text=chunk.content,
+                text=chunk.text,
                 metadata={
-                    "document_id": str(chunk.document_id),
-                    "chunk_index": chunk.chunk_index
+                    "document_id": str(chunk.doc_id),
+                    "chunk_index": chunk.chunk_sequence
                 }
             ))
         
