@@ -4,7 +4,6 @@ import logging
 import uuid
 
 # from langchain.text_splitter import RecursiveCharacterTextSplitter # Removed dependency
-from transformers import AutoTokenizer
 
 from app.core.config import settings
 
@@ -36,22 +35,15 @@ class DocumentChunker:
     def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        except Exception:
-            logger.warning("Could not load specific tokenizer, falling back to approximate token count (char/4)")
-            self.tokenizer = None
+        self.tokenizer = None  # Not using transformers tokenizer - using char count approximation
             
         # Delimiters in order of priority
         self.separators = ["\n\n", "\n", ". ", "? ", "! ", " ", ""]
 
     def _count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        if self.tokenizer:
-            return len(self.tokenizer.encode(text, add_special_tokens=False))
-        else:
-            return len(text) // 4
+        """Estimate token count using character count approximation (char/4)."""
+        # Using approximate token count: ~4 characters = 1 token
+        return len(text) // 4 + 1
 
     def _split_text_recursive(self, text: str, separators: List[str]) -> List[str]:
         """
