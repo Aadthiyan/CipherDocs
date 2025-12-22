@@ -54,36 +54,31 @@ async def search_documents(
             detail="Failed to process query embedding"
         )
         
-    # 2. Encrypt Query Vector
+    # 2. Get Tenant Key (for CyborgDB encrypted index)
     try:
         tenant_key = KeyManager.get_tenant_key(db, tenant_id)
-        # Encrypt vector to base64 string
-        encrypted_query = VectorEncryptor.encrypt_vector(query_vector, tenant_key)
     except ValueError as e:
         logger.error(f"Key retrieval failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="Encryption key error"
         )
-    except Exception as e:
-        logger.error(f"Encryption failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Query encryption failed"
-        )
         
     # 3. Search CyborgDB
     try:
-        # Convert tenant_key (base64 string) to bytes, then to list of integers for CyborgDB
+        # CyborgDB handles encryption internally - pass raw query vector, not encrypted string
+        # Convert tenant_key to index_key format (list of integers)
         import base64
         index_key_bytes = base64.urlsafe_b64decode(tenant_key)
         index_key_list = list(index_key_bytes[:32])
         # Pad with zeros if needed
         while len(index_key_list) < 32:
             index_key_list.append(0)
+        
+        # Pass RAW query_vector (not encrypted_query) to CyborgDB
         raw_results = CyborgDBManager.search(
             str(tenant_id),
-            encrypted_query,
+            query_vector,  # Use raw vector, not encrypted string
             top_k=request.top_k,
             index_key=index_key_list
         )
@@ -298,13 +293,11 @@ async def advanced_search(
             KeyManager.create_tenant_key(db, tenant_id)
             tenant_key = KeyManager.get_tenant_key(db, tenant_id)
         
-        # 3. Encrypt query vector
-        encrypted_query = VectorEncryptor.encrypt_vector(query_vector, tenant_key)
-        
-        # 4. Search CyborgDB
+        # 3. Search CyborgDB (it handles encryption internally)
         import base64
         index_key = base64.urlsafe_b64decode(tenant_key)
-        raw_results = CyborgDBManager.search(str(tenant_id), encrypted_query, request.top_k, index_key=list(index_key[:32]))
+        # Pass raw query_vector to CyborgDB, not encrypted string
+        raw_results = CyborgDBManager.search(str(tenant_id), query_vector, request.top_k, index_key=list(index_key[:32]))
         
         if not raw_results:
             logger.info(f"No search results found for tenant {tenant_id}")
