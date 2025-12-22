@@ -161,16 +161,18 @@ async def process_document_sync(document_id: uuid.UUID, db: Session) -> dict:
             
             # Upsert batch to CyborgDB
             try:
-                if settings.CYBORGDB_API_KEY:
-                    # Convert tenant_key (base64 string) to bytes for CyborgDB index_key
-                    import base64
-                    index_key = base64.urlsafe_b64decode(tenant_key)
-                    CyborgDBManager.upsert_vectors(str(document.tenant_id), cyborg_batch, index_key=index_key)
-                    logger.info(f"Uploaded batch of {len(cyborg_batch)} vectors to CyborgDB")
+                # Convert tenant_key (base64 string) to list of bytes for CyborgDB index_key
+                import base64
+                index_key_bytes = base64.urlsafe_b64decode(tenant_key)
+                index_key_list = list(index_key_bytes[:32])  # Convert to 32-element list
+                while len(index_key_list) < 32:
+                    index_key_list.append(0)
+                
+                CyborgDBManager.upsert_vectors(str(document.tenant_id), cyborg_batch, index_key=index_key_list)
+                logger.info(f"Uploaded batch of {len(cyborg_batch)} vectors to CyborgDB for tenant {document.tenant_id}")
             except Exception as e:
-                logger.error(f"CyborgDB upsert failed for batch: {e}")
-                # Continue processing even if CyborgDB fails
-                # raise e
+                logger.error(f"CyborgDB upsert failed for batch: {e}", exc_info=True)
+                # Continue processing even if CyborgDB fails - documents are still searchable in DB
         
         # Bulk insert chunks
         db.add_all(db_chunks)

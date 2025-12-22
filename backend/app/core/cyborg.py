@@ -184,14 +184,14 @@ class CyborgDBManager:
                 raise e
 
     @classmethod
-    def upsert_vectors(cls, tenant_id: str, vectors: list, index_key: bytes = None) -> int:
+    def upsert_vectors(cls, tenant_id: str, vectors: list, index_key: list = None) -> int:
         """
         Upsert encrypted vectors to the tenant's index.
         
         Args:
             tenant_id: Tenant UUID
             vectors: List of dicts [{"id": str, "vector": list[float], "metadata": dict}]
-            index_key: 32-byte encryption key for the index (bytes)
+            index_key: 32-element list encryption key for the index (list of int 0-255)
             
         Returns:
             Number of vectors upserted
