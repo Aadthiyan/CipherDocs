@@ -43,18 +43,16 @@ class CyborgDBManager:
         try:
             logger.info("Initializing CyborgDB Lite client...")
             
-            # Configure storage locations - use PostgreSQL for persistence across restarts
-            # CyborgDB supports: memory, postgresql, redis
-            # PostgreSQL provides durability and survives worker restarts
-            # Force PostgreSQL for production (ignore env var to ensure persistence)
-            backing_store = "postgresql"
+            # Configure storage locations - CyborgDB Lite only supports memory and redis
+            # For hackathon: use memory (fast, in-process)
+            # Note: Indexes lost on worker restart - acceptable for demo/hackathon
+            # For production: use redis backing store (requires Redis setup)
+            backing_store = "memory"
             
-            # Use PostgreSQL with database connection URL
-            db_url = settings.DATABASE_URL
-            logger.info(f"CyborgDB using PostgreSQL backing store for persistence")
-            index_location = cyborgdb.DBConfig("postgresql", db_url)
-            config_location = cyborgdb.DBConfig("postgresql", db_url)
-            items_location = cyborgdb.DBConfig("postgresql", db_url)
+            logger.info(f"CyborgDB using memory backing store (indexes lost on restart)")
+            index_location = cyborgdb.DBConfig(backing_store)
+            config_location = cyborgdb.DBConfig(backing_store)
+            items_location = cyborgdb.DBConfig(backing_store)
             
             # Get API key from settings (set CYBORGDB_API_KEY in .env)
             api_key = os.getenv("CYBORGDB_API_KEY", "")
