@@ -3,7 +3,7 @@ services:
     name: cipherdocs-backend
     runtime: python
     buildCommand: pip install -r requirements.txt && alembic upgrade head
-    startCommand: gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --workers 4 --bind 0.0.0.0:$PORT
+    startCommand: gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:$PORT --timeout 300 --graceful-timeout 60
     plan: standard
     envVars:
       # Application settings
@@ -28,7 +28,7 @@ services:
       
       # CyborgDB Embedded Configuration
       - key: CYBORGDB_BACKING_STORE
-        value: "memory"  # Use 'memory' for Render (fast, in-process). Use 'redis' for persistent storage.
+        value: "postgresql"  # Use PostgreSQL for persistence across worker restarts
       
       # Secrets (set in Render dashboard)
       - key: JWT_SECRET_KEY

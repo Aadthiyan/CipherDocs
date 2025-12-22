@@ -43,13 +43,23 @@ class CyborgDBManager:
         try:
             logger.info("Initializing CyborgDB Lite client...")
             
-            # Configure storage locations (using memory for hackathon/demo)
-            # For production, use Redis or PostgreSQL
-            backing_store = settings.CYBORGDB_BACKING_STORE or "memory"
+            # Configure storage locations - use PostgreSQL for persistence across restarts
+            # CyborgDB supports: memory, postgresql, redis
+            # PostgreSQL provides durability and survives worker restarts
+            backing_store = settings.CYBORGDB_BACKING_STORE or "postgresql"
             
-            index_location = cyborgdb.DBConfig(backing_store)
-            config_location = cyborgdb.DBConfig(backing_store)
-            items_location = cyborgdb.DBConfig(backing_store)
+            # If using PostgreSQL, provide connection URL
+            if backing_store == "postgresql":
+                db_url = settings.DATABASE_URL
+                logger.info(f"CyborgDB using PostgreSQL backing store for persistence")
+                index_location = cyborgdb.DBConfig("postgresql", db_url)
+                config_location = cyborgdb.DBConfig("postgresql", db_url)
+                items_location = cyborgdb.DBConfig("postgresql", db_url)
+            else:
+                # Fallback to memory if explicitly set
+                index_location = cyborgdb.DBConfig(backing_store)
+                config_location = cyborgdb.DBConfig(backing_store)
+                items_location = cyborgdb.DBConfig(backing_store)
             
             # Get API key from settings (set CYBORGDB_API_KEY in .env)
             api_key = os.getenv("CYBORGDB_API_KEY", "")
@@ -248,20 +258,29 @@ class CyborgDBManager:
         index_name = f"tenant_{tenant_id}"
         
         try:
-            # Check if index exists
+            # Check if index exists in memory
             if index_name not in cls._indexes:
-                logger.warning(f"Index {index_name} not found, attempting to load")
+                logger.info(f"Index {index_name} not in memory, attempting to load from persistent storage")
                 client = cls.get_client()
                 try:
-                    # Try to load the index
+                    # Try to load the index from persistent backing store
+                    # For PostgreSQL, the index is saved and can be reloaded
                     key = index_key or cls._index_keys.get(index_name)
                     if not key:
-                        logger.warning(f"No key available for {index_name} - returning empty results")
-                        return []
-                    
-                    index = client.load_index(index_name=index_name, index_key=key)
-                    cls._indexes[index_name] = index
-                    cls._index_keys[index_name] = key
+                        logger.warning(f"No encryption key available for {index_name}")
+                        # Try without key (for unencrypted indexes)
+                        try:
+                            index = client.load_index(index_name=index_name)
+                            cls._indexes[index_name] = index
+                            logger.info(f"Loaded index {index_name} from persistent storage (unencrypted)")
+                        except Exception:
+                            logger.warning(f"Failed to load unencrypted index {index_name} - returning empty results")
+                            return []
+                    else:
+                        index = client.load_index(index_name=index_name, index_key=key)
+                        cls._indexes[index_name] = index
+                        cls._index_keys[index_name] = key
+                        logger.info(f"Loaded index {index_name} from persistent storage")
                 except Exception as load_err:
                     logger.warning(f"Failed to load index {index_name}: {load_err} - returning empty results")
                     return []
