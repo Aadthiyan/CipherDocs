@@ -17,13 +17,16 @@ const Signup = () => {
         setLoading(true);
         try {
             await signup(email, password, company);
-            toast.success('Account created successfully! Logging you in...');
-            // Auto login
-            await login(email, password);
-            navigate('/dashboard');
+            toast.success('Account created! Check your email for verification code.');
+            // Store email in localStorage for verification page
+            localStorage.setItem('verificationEmail', email);
+            localStorage.setItem('verificationPassword', password);
+            // Redirect to email verification page
+            navigate('/verify-email');
         } catch (error) {
             console.error(error);
-            toast.error('Signup failed. Please try again.');
+            const errorMsg = error.response?.data?.detail || 'Signup failed. Please try again.';
+            toast.error(errorMsg);
         } finally {
             setLoading(false);
         }

@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VerifyEmail from './pages/VerifyEmail';
 import Dashboard from './pages/Dashboard';
 import Documents from './pages/Documents';
 import Search from './pages/Search';
@@ -23,6 +24,7 @@ function App() {
                     <Route path="/" element={<Landing />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    <Route path="/verify-email" element={<VerifyEmail />} />
 
                     {/* Protected Routes */}
                     <Route element={<PrivateRoute />}>
