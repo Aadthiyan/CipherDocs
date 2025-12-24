@@ -1,38 +1,29 @@
 """
 Email Service for sending OTP verification codes
-Uses FastAPI-Mail with Gmail SMTP
+Uses Brevo (Sendinblue) API for reliable email delivery
 """
 
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 from pydantic import EmailStr
-from typing import List
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
+# Configure Brevo API
+configuration = sib_api_v3_sdk.Configuration()
+configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY", "")
 
-# Email configuration from environment variables
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME", "your_email@gmail.com"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", "your_app_password"),
-    MAIL_FROM=os.getenv("MAIL_FROM", "your_email@gmail.com"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
-    MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "CipherDocs"),
-    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "true").lower() == "true",
-    MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "false").lower() == "true",
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
-)
-
-# Initialize FastMail
-fm = FastMail(conf)
+# Create API instance
+api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
 
 async def send_verification_email(email: EmailStr, otp_code: str, user_name: str = "User") -> bool:
     """
-    Send OTP verification email to user
+    Send OTP verification email to user using Brevo API
     
     Args:
         email: User's email address
@@ -100,12 +91,12 @@ async def send_verification_email(email: EmailStr, otp_code: str, user_name: str
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🔐 Email Verification</h1>
+                    <h1>🔒 Email Verification</h1>
                 </div>
                 <div class="content">
                     <p>Hello {user_name},</p>
                     
-                    <p>Thank you for signing up with <strong>CipherDocs</strong>!</p>
+                    <p>Thank you for signing up with CipherDocs!</p>
                     
                     <p>To complete your registration, please verify your email address by entering the following verification code:</p>
                     
@@ -133,131 +124,25 @@ async def send_verification_email(email: EmailStr, otp_code: str, user_name: str
         </html>
         """
         
-        # Plain text version for email clients that don't support HTML
-        text_content = f"""
-        Hello {user_name},
+        # Create email using Brevo API
+        sender = {"name": os.getenv("MAIL_FROM_NAME", "CipherDocs"), "email": os.getenv("MAIL_FROM", "aadhiks9595@gmail.com")}
+        to = [{"email": email, "name": user_name}]
         
-        Thank you for signing up with CipherDocs!
-        
-        To complete your registration, please verify your email address by entering the following verification code:
-        
-        {otp_code}
-        
-        This code will expire in 10 minutes.
-        
-        SECURITY NOTICE: Never share this code with anyone. CipherDocs will never ask for your verification code via email or phone.
-        
-        If you didn't create an account with CipherDocs, please ignore this email.
-        
-        Best regards,
-        The CipherDocs Team
-        """
-        
-        message = MessageSchema(
+        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+            to=to,
+            sender=sender,
             subject="Verify Your Email - CipherDocs",
-            recipients=[email],
-            body=text_content,
-            html=html_content,
-            subtype=MessageType.html
+            html_content=html_content
         )
         
-        await fm.send_message(message)
+        # Send the email
+        api_instance.send_transac_email(send_smtp_email)
+        logger.info(f"Verification email sent successfully to {email}")
         return True
         
-    except Exception as e:
-        print(f"Error sending email to {email}: {str(e)}")
+    except ApiException as e:
+        logger.error(f"Brevo API error sending email to {email}: {e}")
         return False
-
-
-async def send_password_reset_email(email: EmailStr, reset_token: str, user_name: str = "User") -> bool:
-    """
-    Send password reset email (for future implementation)
-    
-    Args:
-        email: User's email address
-        reset_token: Password reset token
-        user_name: User's name (optional)
-    
-    Returns:
-        bool: True if email sent successfully, False otherwise
-    """
-    try:
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    background-color: #f9f9f9;
-                }}
-                .header {{
-                    background-color: #EF4444;
-                    color: white;
-                    padding: 20px;
-                    text-align: center;
-                    border-radius: 5px 5px 0 0;
-                }}
-                .content {{
-                    background-color: white;
-                    padding: 30px;
-                    border-radius: 0 0 5px 5px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 12px 30px;
-                    background-color: #EF4444;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    margin: 20px 0;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🔑 Password Reset</h1>
-                </div>
-                <div class="content">
-                    <p>Hello {user_name},</p>
-                    
-                    <p>We received a request to reset your password. Click the button below to reset it:</p>
-                    
-                    <p style="text-align: center;">
-                        <a href="http://localhost:3000/reset-password?token={reset_token}" class="button">Reset Password</a>
-                    </p>
-                    
-                    <p>This link will expire in 1 hour.</p>
-                    
-                    <p>If you didn't request a password reset, please ignore this email.</p>
-                    
-                    <p>Best regards,<br>
-                    <strong>The CipherDocs Team</strong></p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        message = MessageSchema(
-            subject="Reset Your Password - CipherDocs",
-            recipients=[email],
-            body=f"Reset your password: http://localhost:3000/reset-password?token={reset_token}",
-            html=html_content,
-            subtype=MessageType.html
-        )
-        
-        await fm.send_message(message)
-        return True
-        
     except Exception as e:
-        print(f"Error sending password reset email to {email}: {str(e)}")
+        logger.error(f"Error sending email to {email}: {str(e)}")
         return False
