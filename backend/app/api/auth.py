@@ -363,8 +363,8 @@ async def get_me(
     description="Verify user email address using the OTP code sent during signup."
 )
 async def verify_email(
-    email: str,
-    code: str,
+    email: str = Body(...),
+    code: str = Body(...),
     db: Session = Depends(get_db)
 ):
     """
