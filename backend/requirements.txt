@@ -16,6 +16,9 @@ passlib[argon2]>=1.7.4
 argon2-cffi>=23.1.0
 cryptography>=41.0.0
 
+# Email
+fastapi-mail>=1.4.1
+
 # Document Processing
 langchain>=0.0.300
 pypdf>=3.16.0

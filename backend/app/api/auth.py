@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import uuid
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ from app.core.config import settings
 from app.api.deps import get_current_user
 from app.core.encryption import KeyManager
 from app.core.cyborg import CyborgDBManager
+from app.utils.otp import generate_otp_code, get_otp_expiry_time, verify_otp
+from app.utils.email_service import send_verification_email
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -108,14 +111,21 @@ async def signup(
         db.add(tenant)
         db.flush()  # Get tenant.id without committing
         
-        # Create admin user
+        # Generate OTP code
+        otp_code = generate_otp_code()
+        otp_expiry = get_otp_expiry_time()
+        
+        # Create admin user (unverified)
         user = User(
             id=uuid.uuid4(),
             email=request.email,
             password_hash=password_hash,
             tenant_id=tenant.id,
             role="admin",
-            is_active=True
+            is_active=True,
+            is_verified=False,  # User needs to verify email
+            verification_code=otp_code,
+            code_expires_at=otp_expiry
         )
         db.add(user)
         
@@ -142,6 +152,15 @@ async def signup(
         db.commit()
         db.refresh(user)
         db.refresh(tenant)
+        
+        # Send verification email (async, don't block signup)
+        try:
+            email_sent = await send_verification_email(request.email, otp_code, request.company_name)
+            if not email_sent:
+                logger.warning(f"Failed to send verification email to {request.email}")
+        except Exception as e:
+            logger.error(f"Error sending verification email: {str(e)}")
+            # Continue with signup even if email fails
         
     except IntegrityError as e:
         db.rollback()
@@ -232,6 +251,13 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated. Please contact support."
+        )
+    
+    # Check if email is verified
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please check your email for the verification code."
         )
     
     # Get tenant and check if active
@@ -328,6 +354,152 @@ async def get_me(
         "user": UserResponse.model_validate(current_user),
         "tenant": TenantResponse.model_validate(tenant)
     }
+
+
+@router.post(
+    "/verify-email",
+    status_code=status.HTTP_200_OK,
+    summary="Verify email with OTP code",
+    description="Verify user email address using the OTP code sent during signup."
+)
+async def verify_email(
+    email: str,
+    code: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Verify user email with OTP code.
+    
+    - **email**: User's email address
+    - **code**: 6-digit OTP code received via email
+    
+    Returns success message and JWT tokens if verification successful.
+    """
+    # Find user by email
+    user = db.query(User).filter(User.email == email).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Check if already verified
+    if user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already verified"
+        )
+    
+    # Verify OTP code
+    is_valid, error_message = verify_otp(
+        provided_code=code,
+        stored_code=user.verification_code,
+        expiry_time=user.code_expires_at
+    )
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message
+        )
+    
+    # Mark user as verified
+    user.is_verified = True
+    user.verification_code = None  # Clear the code
+    user.code_expires_at = None
+    db.commit()
+    db.refresh(user)
+    
+    # Get tenant
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    
+    # Generate JWT tokens
+    access_token = security.create_access_token(
+        subject=str(user.id),
+        tenant_id=str(tenant.id),
+        role=user.role
+    )
+    
+    refresh_token = security.create_refresh_token(
+        subject=str(user.id),
+        tenant_id=str(tenant.id),
+        role=user.role
+    )
+    
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
+        tenant=TenantResponse.model_validate(tenant)
+    )
+
+
+@router.post(
+    "/resend-otp",
+    status_code=status.HTTP_200_OK,
+    summary="Resend OTP verification code",
+    description="Resend verification code to user's email address."
+)
+async def resend_otp(
+    email: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Resend OTP verification code to user's email.
+    
+    - **email**: User's email address
+    
+    Returns success message if OTP sent successfully.
+    """
+    # Find user by email
+    user = db.query(User).filter(User.email == email).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Check if already verified
+    if user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already verified"
+        )
+    
+    # Generate new OTP code
+    otp_code = generate_otp_code()
+    otp_expiry = get_otp_expiry_time()
+    
+    # Update user with new OTP
+    user.verification_code = otp_code
+    user.code_expires_at = otp_expiry
+    db.commit()
+    
+    # Send verification email
+    try:
+        email_sent = await send_verification_email(email, otp_code, user.tenant.name if user.tenant else "User")
+        
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send verification email. Please try again later."
+            )
+        
+        return {
+            "message": "Verification code sent successfully",
+            "email": email,
+            "expires_in_minutes": int(os.getenv("OTP_EXPIRATION_MINUTES", 10))
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resending OTP to {email}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send verification email. Please try again later."
+        )
 
 
 @router.post(

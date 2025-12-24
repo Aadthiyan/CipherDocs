@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: cyborgdb
+    runtime: docker
+    dockerfilePath: ./docker/cyborgdb.Dockerfile
+    port: 8002
+    disk:
+      name: cyborgdb-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: CYBORGDB_PORT
+        value: "8002"
+      - key: CYBORGDB_HOST
+        value: "0.0.0.0"
+    healthCheckPath: /health

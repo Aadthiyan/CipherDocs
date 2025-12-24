@@ -62,6 +62,12 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, default="user")  # admin, user, viewer
     is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Email verification fields
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_code = Column(String(6), nullable=True)  # 6-digit OTP code
+    code_expires_at = Column(DateTime(timezone=True), nullable=True)
+    
     last_login = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

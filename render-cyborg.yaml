@@ -1,0 +1,24 @@
+# Render deployment configuration for standalone CyborgDB service
+# Use this to deploy CyborgDB separately from your backend
+
+services:
+  cyborgdb:
+    image: niledb/cyborgdb:latest
+    container_name: cyborgdb-service
+    ports:
+      - "8002:8002"
+    environment:
+      - CYBORGDB_PORT=8002
+      - CYBORGDB_HOST=0.0.0.0
+    volumes:
+      - cyborgdb_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  cyborgdb_data:
+    driver: local
