@@ -5,7 +5,7 @@ Handles OTP generation, validation, and expiry checking
 
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 import os
 from dotenv import load_dotenv
@@ -39,7 +39,7 @@ def get_otp_expiry_time() -> datetime:
     Returns:
         datetime: Timestamp when OTP expires
     """
-    return datetime.utcnow() + timedelta(minutes=OTP_EXPIRATION_MINUTES)
+    return datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRATION_MINUTES)
 
 
 def is_otp_expired(expiry_time: datetime) -> bool:
@@ -54,7 +54,15 @@ def is_otp_expired(expiry_time: datetime) -> bool:
     """
     if expiry_time is None:
         return True
-    return datetime.utcnow() > expiry_time
+    
+    # Make comparison timezone-aware
+    current_time = datetime.now(timezone.utc)
+    
+    # If expiry_time is naive, make it aware (assume UTC)
+    if expiry_time.tzinfo is None:
+        expiry_time = expiry_time.replace(tzinfo=timezone.utc)
+    
+    return current_time > expiry_time
 
 
 def verify_otp(provided_code: str, stored_code: str, expiry_time: datetime) -> Tuple[bool, str]:
