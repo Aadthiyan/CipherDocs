@@ -2,7 +2,7 @@
 Authentication endpoints for signup and login
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -443,11 +443,16 @@ async def verify_email(
     description="Resend verification code to user's email address."
 )
 async def resend_otp(
-    email: str,
+    email: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ):
     """
     Resend OTP verification code to user's email.
+    
+    - **email**: User's email address
+    
+    Returns success message if OTP sent successfully.
+    """
     
     - **email**: User's email address
     
