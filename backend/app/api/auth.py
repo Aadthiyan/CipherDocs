@@ -453,11 +453,6 @@ async def resend_otp(
     
     Returns success message if OTP sent successfully.
     """
-    
-    - **email**: User's email address
-    
-    Returns success message if OTP sent successfully.
-    """
     # Find user by email
     user = db.query(User).filter(User.email == email).first()
     
