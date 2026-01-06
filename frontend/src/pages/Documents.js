@@ -174,8 +174,8 @@ const Documents = () => {
                     <div
                         {...getRootProps()}
                         className={`card p-12 text-center cursor-pointer transition-all border-2 border-dashed ${isDragActive
-                                ? 'border-indigo-500 bg-indigo-500/10 scale-105'
-                                : 'border-gray-700 hover:border-indigo-500/50'
+                            ? 'border-indigo-500 bg-indigo-500/10 scale-105'
+                            : 'border-gray-700 hover:border-indigo-500/50'
                             }`}
                     >
                         <input {...getInputProps()} />
@@ -206,6 +206,22 @@ const Documents = () => {
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>
+
+                {/* Processing Time Notice */}
+                <div className="card p-4 mb-4 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/20 slide-in-right">
+                    <div className="flex items-start space-x-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <ClockIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h4 className="text-lg font-bold text-white mb-1">Processing Time</h4>
+                            <p className="text-gray-300 text-sm">
+                                ⚠️ <strong>Note:</strong> The bigger the document, the longer it takes to encrypt and process.
+                                Large files may take several minutes to complete.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
