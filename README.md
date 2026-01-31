@@ -1,5 +1,7 @@
 # CyborgDB - Encrypted Multi-Tenant SaaS Document Search Platform
 
+## Live Demo : https://cipher-docs-liard.vercel.app/
+
 ## 🎯 One-Sentence Pitch
 A multi-tenant SaaS platform enabling enterprises to run AI-powered semantic search and document recommendations on their own corpus using encrypted embeddings, ensuring zero cross-tenant data leakage and compliance with GDPR/HIPAA standards.
 
